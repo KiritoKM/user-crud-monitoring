@@ -1,0 +1,93 @@
+services:
+  # 1. Backend Fast
+  api:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: fastapi_container
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://user:password@postgres:5432/mydb
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+
+  # 2. Basedatos
+  postgres:
+    image: postgres:13
+    container_name: postgres_container
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=mydb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U user -d mydb" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - backend
+
+  # 3. Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus_container
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+    depends_on:
+      - api
+    networks:
+      - backend
+
+  # 4. Metricas Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana_container
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+    depends_on:
+      - prometheus
+    networks:
+      - backend
+
+# Volumenes
+volumes:
+  postgres_data:
+    name: user_crud_postgres_data
+  prometheus_data:
+    name: user_crud_prometheus_data
+  grafana_data:
+    name: user_crud_grafana_data
+
+# Red 
+networks:
+  backend:
+    driver: bridge
